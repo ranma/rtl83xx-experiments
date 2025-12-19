@@ -117,10 +117,13 @@ hexaddr:
 	ret
 
 hexdump:
-	acall hexaddr
+	setb F0
 	mov R2, #16
-	inc R0
 hexdump_loop:
+	jnb F0, hexdump_noaddr
+	acall hexaddr
+	clr F0
+hexdump_noaddr:
 	mov A, #' '
 	acall serial_write
 	acall read_byte
@@ -129,15 +132,34 @@ hexdump_loop:
 	djnz R2, hexdump_nonewline
 	mov R2, #16
 	acall serial_newline
-	acall hexaddr
+	setb F0
 hexdump_nonewline:
-	djnz R1, hexdump_loop
-	djnz R0, hexdump_loop
+	clr C
+	mov A, R1
+	subb A, #1
+	mov R1, A
+	mov A, R0
+	subb A, #0
+	mov R0, A
+	orl A, R1
+	jnz hexdump_loop
 	ret
 
-hexdump_0000:
+hexdump_partial:
 	mov DPTR, #0x0000
-	mov R0, #0xf0
+	mov R0, #0x01
+	mov R1, #0x00
+	acall hexdump
+	mov DPTR, #0x4000
+	mov R0, #0x01
+	mov R1, #0x00
+	acall hexdump
+	mov DPTR, #0x8000
+	mov R0, #0x01
+	mov R1, #0x00
+	acall hexdump
+	mov DPTR, #0xc000
+	mov R0, #0x01
 	mov R1, #0x00
 	sjmp hexdump
 
@@ -219,17 +241,17 @@ xram_fill_loop:
 	mov CODE_BANK, #0
 	mov DPTR, #message_bank0
 	lcall serial_puts
-	lcall hexdump_0000
+	lcall hexdump_partial
 
 	mov CODE_BANK, #1
 	mov DPTR, #message_bank1
 	lcall serial_puts
-	lcall hexdump_0000
+	lcall hexdump_partial
 
 	mov CODE_BANK, #2
 	mov DPTR, #message_bank2
 	lcall serial_puts
-	lcall hexdump_0000
+	lcall hexdump_partial
 
 	; dump xram memory
 	mov R7, #1  ; hexdump XRAM
@@ -240,24 +262,47 @@ xram_fill_loop:
 	mov DATA_BANK, #0
 	mov DPTR, #message_bank0
 	lcall serial_puts
-	lcall hexdump_0000
+	lcall hexdump_partial
 
 	mov DATA_BANK, #1
 	mov DPTR, #message_bank1
 	lcall serial_puts
-	lcall hexdump_0000
+	lcall hexdump_partial
 
 	mov DATA_BANK, #2
 	mov DPTR, #message_bank2
 	lcall serial_puts
-	lcall hexdump_0000
+	lcall hexdump_partial
 
 	; dump via second stack
 	mov R7, #2  ; hexdump via SSIO
 
 	mov DPTR, #message_dumpxstack
 	lcall serial_puts
-	lcall hexdump_0000
+	lcall hexdump_partial
+
+	; dump registers
+	; register address seem to be word aligned
+	mov DPTR, #0
+dump_register_loop:
+	lcall hexaddr
+	lcall reg_read
+	mov A, INDACC_DATA_24
+	lcall serial_hex
+	mov A, INDACC_DATA_16
+	lcall serial_hex
+	mov A, INDACC_DATA_8
+	lcall serial_hex
+	mov A, INDACC_DATA_0
+	lcall serial_hex
+	lcall serial_newline
+	inc DPTR
+	inc DPTR
+	inc DPTR
+	inc DPTR
+	mov A, DPL
+	orl A, DPH
+	jnz dump_register_loop
 
 halt:
 	sjmp halt
