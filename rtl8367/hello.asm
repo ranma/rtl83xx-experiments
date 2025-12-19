@@ -1,5 +1,5 @@
 ;-----------------------------------------------------------------------------
-; RTL8372 8051 firmware test.
+; RTL8367 8051 firmware test.
 ;-----------------------------------------------------------------------------
 
 ; Local vars
@@ -284,15 +284,11 @@ xram_fill_loop:
 	lcall hexdump_partial
 
 	; dump registers
-	; register address seem to be word aligned
+	; note: unimplemented register addresses take longish to read (wait for a timeout)
 	mov DPTR, #0
 dump_register_loop:
 	lcall hexaddr
 	lcall reg_read
-	mov A, INDACC_WDATA_H
-	lcall serial_hex
-	mov A, INDACC_WDATA_L
-	lcall serial_hex
 	mov A, INDACC_RDATA_H
 	lcall serial_hex
 	mov A, INDACC_RDATA_L
