@@ -3,7 +3,7 @@ all: hello.bin
 clean:
 	rm *.bin *.rel *.lst
 
-hello.bin: hello.asm
+hello.bin: hello.ihx
 
 .SUFFIXES: .asm .s .bin .c .ihx .rel
 
