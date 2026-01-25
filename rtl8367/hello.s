@@ -49,7 +49,7 @@
 .equ RTL8367_130C_MISC_CFG0, 0x130c
 .equ RTL8367_130D_MISC_CFG1, 0x130d
 .equ RTL8367_1322_CHIP_RESET, 0x1322
-.equ RTL8367_1366_DW8051_RDY, 0x1336
+.equ RTL8367_1336_DW8051_RDY, 0x1336
 .equ RTL8367_13C0_RTL_NO, 0x13c0
 .equ RTL8367_13C1_RTL_VER, 0x13c1
 .equ RTL8367_13C2_RTL_MAGIC_ID, 0x13c2
@@ -381,6 +381,42 @@ port_init_phyocp:
 	mov A, INDACC_RDATA_L
 	mov INDACC_WDATA_L, A
 	acall reg_write
+
+	mov DPTR, #RTL8367_13C2_RTL_MAGIC_ID
+	mov INDACC_WDATA_H, #0x02
+	mov INDACC_WDATA_L, #0x49
+	acall reg_write
+	mov DPTR, #RTL8367_1301_CHIP_VER
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	anl A, #0xf0
+	cjne A, #0xa0, port_init_phyocp_exit
+
+	mov DPTR, #0xA5D0
+	acall phyocp_reg_addr
+	; regData |= 0x0006;
+	acall reg_read
+	mov A, INDACC_RDATA_H
+	mov INDACC_WDATA_H, A
+	mov A, INDACC_RDATA_L
+	orl A, #0x06
+	mov INDACC_WDATA_L, A
+	acall reg_write
+
+	; Enable port
+	mov DPTR, #0xA400
+	acall phyocp_reg_addr
+	; regData = (regData & ~0x0800) | 0x0200;
+	acall reg_read
+	mov A, INDACC_RDATA_H
+	anl A, #0xf7
+	orl A, #0x02
+	mov INDACC_WDATA_H, A
+	mov A, INDACC_RDATA_L
+	mov INDACC_WDATA_L, A
+	acall reg_write
+
+port_init_phyocp_exit:
 	ret
 
 port_init1:
@@ -407,19 +443,11 @@ system_init:
 	mov SSPL, #0x80
 	mov SSPH, #0x80
 
+	; Power-up clock seems to be 20.833MHz (125MHz / 6)
 	mov DPTR, #reg_initlist
 	acall reg_from_initlist
 
-	mov DPTR, #RTL8367_1366_DW8051_RDY
-	acall reg_read
-	; Switch from default 20.833MHz (rate 5) to 62.5MHz (rate 4) CPU clock.
-	mov A, #0x41 ; RATE 4, DW8051_READY
-	mov INDACC_WDATA_L, A
-	mov A, INDACC_RDATA_H
-	mov INDACC_WDATA_H, A
-	acall reg_write
-
-	; Power-up clock seems to be 20.833MHz (125MHz / 6)
+	; Clock is now 62.5MHz, uart gpios are initialized.
 
 	mov CKCON, #0x10  ; No XRAM stretch cycles, timers run at ck/12, timer1 at ck/4
 
@@ -464,10 +492,11 @@ system_init:
 	mov DPTR, #message_crlf
 	acall serial_puts
 
-	; Initialize switch
-	acall port_init1
+	; Initialize switch registers
 	mov DPTR, #reg_initlist2
 	acall reg_from_initlist
+	; Initialize switch ports
+	acall port_init1
 	mov DPTR, #message_switch_done
 	acall serial_puts
 
@@ -494,6 +523,7 @@ haltloop:
 	sjmp haltloop
 
 reg_initlist:
+	; Enable power led GPIO
 	.word RTL8367_1D25_GPIO_MODE_X0 | 0x8000
 	.word 0xffff
 	.word 0x0040
@@ -505,18 +535,21 @@ reg_initlist:
 	.word 0x0000
 	.word RTL8367_1D32_IO_MISC_FUNC
 	.word 0x0004  ; Set UART_EN
+	; Done early on, keep it that way?
 	.word RTL8367_1D3F_TO_ECO2
 	.word 0x0100
+	; Switch from default 20.833MHz (rate 5) to 62.5MHz (rate 4) CPU clock.
+	.word RTL8367_1336_DW8051_RDY
+	.word 0x0041  ; DW8051_READY, DW8051_RATE_4
+	.word 0
+
+reg_initlist2:
 	.word RTL8367_1B00_LED_SYS_CONFIG
 	.word 0x1472  ; non-serial, eee lpi en, eee cap 10, led_poweron_0, led_poweron_1, led_poweron_2, led_select 2
 	.word RTL8367_1B03_LED_CONFIGURATION
-	.word 0x0096
+	.word 0x0069
 	.word RTL8367_130C_MISC_CFG0
-	.word 0x1070
-	.word RTL8367_1366_DW8051_RDY
-	; Switch from default 20.833MHz (rate 5) to 62.5MHz (rate 4) CPU clock.
-	;mov A, #0x41 ; RATE 4, DW8051_READY
-	.word 0x0041
+	.word 0x1070  ; FLASH_ENABLE, AUTOLOAD_EN, DW8051_EN, PON_LIGHT_EN
 	.word RTL8367_1B24_PARA_LED_IO_EN1
 	.word 0xffff
 	.word RTL8367_1B25_PARA_LED_IO_EN2
@@ -540,16 +573,14 @@ reg_initlist:
 	.word RTL8367_1A48_NIC_RXFSTR
 	.word 4
 	.word RTL8367_1A17_NIC_GCR
-	.word 0
+	.word 0x10
 	.word RTL8367_1A5C_NIC_DROP_MODE
 	.word 1
 	.word RTL8367_1A16_NIC_TXCR
 	.word 1
 	.word RTL8367_1A15_NIC_RXCR1
 	.word 3
-	.word 0  ; EOL
-
-reg_initlist2:
+	.word 0x13c4, 0x1076 ; 13c4_DIGITAL_INTERFACE2_FORCE
 	.word 0x13eb, 0x15bb ; 13eb_UTP_FIB_DET
 	.word 0x1303, 0x06d6 ; 1303_CHIP_DEBUG0
 	.word 0x1304, 0x0700 ; 1304_CHIP_DEBUG1
@@ -582,7 +613,6 @@ reg_initlist2:
 	.word 0xffff, 0x0008 ; Set LUT_IPMC_LOOKUP_OP
 	.word 0x1d32 | 0x8000 ; 1d32_IO_MISC_FUNC
 	.word 0xffff, 0x0002 ; Set INT_EN
-
 	.word 0  ; EOL
 
 message_hello:
