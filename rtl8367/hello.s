@@ -13,14 +13,14 @@
 .equ DPS, 0x86
 .equ CKCON, 0x8e
 .equ SPC_FNC, 0x8f
-.equ MPAGE, 0x92
-.equ CODE_BANK, 0x96
-.equ DATA_BANK, 0x97
+.equ MPAGE, 0x92      ; DW8051 high address byte for movx @r0..r1
+.equ CODE_BANK, 0x96  ; RTL bank address for movc / code execution
+.equ DATA_BANK, 0x97  ; RTL bank address for movx / data reads
 .equ SPI_IO_CONF, 0x9a
 .equ SPI_RI_CONF, 0x9b
 .equ SPI_RI_CMD, 0x9c
 .equ SPI_S_CONF, 0x9d
-.equ SPI_S_ACCESS, 0x9e
+.equ SPI_S_ACCESS, 0x9e ; Probably 000adsss, where a=1 if no address sent, d=1 if write, sss=bytes to read (0..4)
 .equ SPI_S_RCMD, 0xb1
 .equ SPI_S_WCMD, 0xb2
 .equ SPI_DSEL_CYCLE, 0xbc
@@ -61,12 +61,13 @@
 .equ RTL8367_13C0_RTL_NO, 0x13c0
 .equ RTL8367_13C1_RTL_VER, 0x13c1
 .equ RTL8367_13C2_RTL_MAGIC_ID, 0x13c2
-.equ RTL8367_1A04_NIC_RXRDRL, 0x1a04  ; RX avail size (1 == 8, 2 == 16 Bytes)
+; NIC ring buffer seems to be 8KiB
+.equ RTL8367_1A04_NIC_RXRDRL, 0x1a04  ; RX ring avail size to read for CPU (1 == 8, 2 == 16, ... Bytes)
 .equ RTL8367_1A05_NIC_RXRDRH, 0x1a05
-.equ RTL8367_1A08_NIC_TXASRL, 0x1a08  ; TX available space
+.equ RTL8367_1A08_NIC_TXASRL, 0x1a08  ; TX ring available space to write for CPU (1 == 8, 2 == 16, ... Bytes)
 .equ RTL8367_1A09_NIC_TXASRH, 0x1a09
-.equ RTL8367_1A0C_NIC_RXCMD, 0x1a0c
-.equ RTL8367_1A0D_NIC_TXCMD, 0x1a0d
+.equ RTL8367_1A0C_NIC_RXCMD, 0x1a0c   ; Write 1 to ACK packet RX and advance SOC ring pointer
+.equ RTL8367_1A0D_NIC_TXCMD, 0x1a0d   ; Write 1 to trigger TX
 .equ RTL8367_1A15_NIC_RXCR1, 0x1a15
 .equ RTL8367_1A16_NIC_TXCR, 0x1a16
 .equ RTL8367_1A17_NIC_GCR, 0x1a17
@@ -633,9 +634,29 @@ rx_wait:
 	mov DPTR, #message_got_packet
 	acall serial_puts
 
-	mov R7, #1
+	; Packet header format:
+	; 0000: 00 00 10 80 00 00 00 44 ff ff ff ff ff ff mm mm
+	;                                                 ^^^^^MAC SA
+	;                               ^^^^^^^^^^^^^^^^^ MAC DA
+	;                         ^^^^^packet len?
+	;                 ^rx_port(0)
+	;             ^^^^flags?
+	;             ^^10: regular packet, 60: other, 80: yet another
+	;          ^^unused?
+	;       ^^seq increases with each ring packet entry
+	; 0010: mm mm mm mm 88 99 04 00 01 00 00 00 08 06 00 01
+	;                                           ^^^^^ARP tag
+	;                                     ^^^^^RTL pmask
+	;                                ^RTL priority 1
+	;                               ^^^^^RTL flags
+	;                            ^^RTL reason
+	;                         ^^RTL tag version
+	;                   ^^^^^RTL tag
+	;       ^^^^^^^^^^^MAC SA continued
+
+	mov R7, #1    ; dump xram
 	mov DPTR, #0
-	mov R0, #0
+	mov R0, #0    ; dump 0x0020 bytes
 	mov R1, #0x20
 	acall hexdump
 
