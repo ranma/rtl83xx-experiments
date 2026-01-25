@@ -15,6 +15,14 @@
 .equ SPC_FNC, 0x8f
 .equ CODE_BANK, 0x96
 .equ DATA_BANK, 0x97
+.equ SPI_IO_CONF, 0x9a
+.equ SPI_RI_CONF, 0x9b
+.equ SPI_RI_CMD, 0x9c
+.equ SPI_S_CONF, 0x9d
+.equ SPI_S_ACCESS, 0x9e
+.equ SPI_S_RCMD, 0xb1
+.equ SPI_S_WCMD, 0xb2
+.equ SPI_DSEL_CYCLE, 0xbc
 .equ INDACC_CMD, 0xa0
 .equ INDACC_STATUS, 0xa1
 .equ INDACC_ADDR_H, 0xa2
@@ -207,6 +215,28 @@ system_init:
 	mov DPTR, #message_hello
 	lcall serial_puts
 
+	; Print SPI SFR state
+	mov DPTR, #message_spi
+	acall serial_puts
+	mov A, SPI_IO_CONF
+	acall serial_hex
+	mov A, SPI_RI_CONF
+	acall serial_hex
+	mov A, SPI_RI_CMD
+	acall serial_hex
+	mov A, SPI_S_CONF
+	acall serial_hex
+	mov A, SPI_S_ACCESS
+	acall serial_hex
+	mov A, SPI_S_RCMD
+	acall serial_hex
+	mov A, SPI_S_WCMD
+	acall serial_hex
+	mov A, SPI_DSEL_CYCLE
+	acall serial_hex
+	mov DPTR, #message_crlf
+	acall serial_puts
+
 	; Fill XRAM
 	mov DATA_BANK, #0
 	mov DPTR, #0
@@ -310,6 +340,10 @@ halt:
 
 message_hello:
 .byte "Hello world!\r\n", 0
+message_spi:
+.byte "SPI: ", 0
+message_crlf:
+.byte "\r\n", 0
 message_dumpcode:
 .byte "Dumping code\r\n", 0
 message_dumpxram:
