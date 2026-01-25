@@ -500,7 +500,7 @@ system_init:
 	mov DPTR, #message_switch_done
 	acall serial_puts
 
-	; dump registers
+	; dump registers up to 0x2000
 	; note: unimplemented register addresses take longish to read (wait for a timeout)
 	mov DPTR, #0
 dump_register_loop:
@@ -512,9 +512,8 @@ dump_register_loop:
 	lcall serial_hex
 	lcall serial_newline
 	inc DPTR
-	mov A, DPL
-	orl A, DPH
-	jnz dump_register_loop
+	mov A, DPH
+	cjne A, #0x20, dump_register_loop
 
 halt:
 	mov DPTR, #message_halt
