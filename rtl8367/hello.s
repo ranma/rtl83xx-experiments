@@ -392,7 +392,7 @@ port_init_phyocp:
 	anl A, #0xf0
 	cjne A, #0xa0, port_init_phyocp_exit
 
-	mov DPTR, #0xA5D0
+	mov DPTR, #0xA5D0  ; EEE_OCP_PHY_ADDR
 	acall phyocp_reg_addr
 	; regData |= 0x0006;
 	acall reg_read
@@ -404,7 +404,7 @@ port_init_phyocp:
 	acall reg_write
 
 	; Enable port
-	mov DPTR, #0xA400
+	mov DPTR, #0xA400  ; PHY_CONTROL_REG
 	acall phyocp_reg_addr
 	; regData = (regData & ~0x0800) | 0x0200;
 	acall reg_read
@@ -489,8 +489,7 @@ system_init:
 	acall serial_hex
 	mov A, SPI_DSEL_CYCLE
 	acall serial_hex
-	mov DPTR, #message_crlf
-	acall serial_puts
+	acall serial_newline
 
 	; Initialize switch registers
 	mov DPTR, #reg_initlist2
@@ -514,6 +513,28 @@ dump_register_loop:
 	inc DPTR
 	mov A, DPH
 	cjne A, #0x20, dump_register_loop
+
+	; dump phy registers
+	mov R7, #0 ; port 0
+	mov DPTR, #0xa400
+dump_phy_loop:
+	acall hexaddr
+	push DPL
+	push DPH
+	acall phyocp_reg_addr
+	acall hexaddr
+	acall reg_read
+	pop DPH
+	pop DPL
+	mov A, INDACC_RDATA_H
+	acall serial_hex
+	mov A, INDACC_RDATA_L
+	acall serial_hex
+	acall serial_newline
+	inc DPTR
+	inc DPTR
+	mov A, DPH
+	cjne A, #0xd4, dump_phy_loop
 
 halt:
 	mov DPTR, #message_halt
@@ -618,8 +639,6 @@ message_hello:
 .asciz "Hello world!\r\n"
 message_spi:
 .asciz "SPI: "
-message_crlf:
-.asciz "\r\n"
 message_switch_done:
 .asciz "Switch initialized!\r\n"
 message_halt:
