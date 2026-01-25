@@ -13,6 +13,7 @@
 .equ DPS, 0x86
 .equ CKCON, 0x8e
 .equ SPC_FNC, 0x8f
+.equ MPAGE, 0x92
 .equ CODE_BANK, 0x96
 .equ DATA_BANK, 0x97
 .equ SPI_IO_CONF, 0x9a
@@ -31,6 +32,13 @@
 .equ INDACC_WDATA_L, 0xa5
 .equ INDACC_RDATA_H, 0xa6
 .equ INDACC_RDATA_L, 0xa7
+; 8051 XRAM address
+.equ PEDMA_E_ADDR0, 0xb3
+.equ PEDMA_E_ADDR1, 0xb4
+; NIC peripheral address
+.equ PEDMA_P_ADDR0, 0xb5
+.equ PEDMA_P_ADDR1, 0xb6
+.equ PEDMA_LEN, 0xb7
 .equ SSPL, 0xb9
 .equ SSPH, 0xba
 .equ SSIO, 0xbb
@@ -53,14 +61,24 @@
 .equ RTL8367_13C0_RTL_NO, 0x13c0
 .equ RTL8367_13C1_RTL_VER, 0x13c1
 .equ RTL8367_13C2_RTL_MAGIC_ID, 0x13c2
+.equ RTL8367_1A04_NIC_RXRDRL, 0x1a04  ; RX avail size (1 == 8, 2 == 16 Bytes)
+.equ RTL8367_1A05_NIC_RXRDRH, 0x1a05
+.equ RTL8367_1A08_NIC_TXASRL, 0x1a08  ; TX available space
+.equ RTL8367_1A09_NIC_TXASRH, 0x1a09
+.equ RTL8367_1A0C_NIC_RXCMD, 0x1a0c
+.equ RTL8367_1A0D_NIC_TXCMD, 0x1a0d
 .equ RTL8367_1A15_NIC_RXCR1, 0x1a15
 .equ RTL8367_1A16_NIC_TXCR, 0x1a16
 .equ RTL8367_1A17_NIC_GCR, 0x1a17
-.equ RTL8367_1A44_NIC_TXSTOPRL, 0x1a44
+.equ RTL8367_1A44_NIC_TXSTOPRL, 0x1a44 ; TX ring wraparound value
 .equ RTL8367_1A45_NIC_TXSTOPRH, 0x1a45
-.equ RTL8367_1A46_NIC_RXSTOPRL, 0x1a46
+.equ RTL8367_1A46_NIC_RXSTOPRL, 0x1a46 ; RX ring wraparound value
 .equ RTL8367_1A47_NIC_RXSTOPRH, 0x1a47
 .equ RTL8367_1A48_NIC_RXFSTR, 0x1a48
+.equ RTL8367_1A50_NIC_CRXCPRL, 0x1a50  ; CPU RX current pointer
+.equ RTL8367_1A51_NIC_CRXCPRH, 0x1a51
+.equ RTL8367_1A52_NIC_CTXCPRL, 0x1a52  ; CPU TX current pointer
+.equ RTL8367_1A53_NIC_CTXCPRH, 0x1a53
 .equ RTL8367_1A5C_NIC_DROP_MODE, 0x1a5c
 .equ RTL8367_1B00_LED_SYS_CONFIG, 0x1b00
 .equ RTL8367_1B03_LED_CONFIGURATION, 0x1b03
@@ -536,6 +554,98 @@ dump_phy_loop:
 	mov A, DPH
 	cjne A, #0xd4, dump_phy_loop
 
+rx_loop:
+	mov DPTR, #RTL8367_1A04_NIC_RXRDRL
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	jnz rx_do
+	mov DPTR, #RTL8367_1A05_NIC_RXRDRH
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	jz rx_loop
+
+rx_do:
+	mov DPTR, #RTL8367_1A09_NIC_TXASRH
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	acall serial_hex
+	mov DPTR, #RTL8367_1A08_NIC_TXASRL
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	acall serial_hex
+	mov A, #' '
+	acall serial_write
+
+	mov DPTR, #RTL8367_1A53_NIC_CTXCPRH
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	acall serial_hex
+	mov DPTR, #RTL8367_1A52_NIC_CTXCPRL
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	acall serial_hex
+	mov A, #' '
+	acall serial_write
+
+	mov DPTR, #RTL8367_1A05_NIC_RXRDRH
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	acall serial_hex
+	mov DPTR, #RTL8367_1A04_NIC_RXRDRL
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	acall serial_hex
+	mov A, #' '
+	acall serial_write
+	mov DPTR, #RTL8367_1A51_NIC_CRXCPRH
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	mov R0, A
+	acall serial_hex
+	mov DPTR, #RTL8367_1A50_NIC_CRXCPRL
+	acall reg_read
+	mov A, INDACC_RDATA_L
+	mov R1, A
+	acall serial_hex
+	mov A, #' '
+	acall serial_write
+	; XRAM address
+	mov PEDMA_E_ADDR0, #0
+	mov PEDMA_E_ADDR1, #0
+	; Peripheral address
+	mov A, R1
+	mov B, #8
+	mul AB
+	mov R1, A
+	mov R2, B
+	mov A, R0
+	mov B, #8
+	mul AB
+	add A, R2
+	mov R0, A
+	mov PEDMA_P_ADDR0, R1 ; Low
+	mov PEDMA_P_ADDR1, R0 ; High
+	mov PEDMA_LEN, #4 ; 32 bytes
+rx_wait:
+	mov A, PEDMA_LEN
+	jnz rx_wait
+
+	mov DPTR, #message_got_packet
+	acall serial_puts
+
+	mov R7, #1
+	mov DPTR, #0
+	mov R0, #0
+	mov R1, #0x20
+	acall hexdump
+
+	mov DPTR, #RTL8367_1A0C_NIC_RXCMD
+	mov INDACC_WDATA_L, #0x01
+	acall reg_write
+	ajmp rx_loop
+
+	sjmp halt
+
 halt:
 	mov DPTR, #message_halt
 	acall serial_puts
@@ -641,5 +751,7 @@ message_spi:
 .asciz "SPI: "
 message_switch_done:
 .asciz "Switch initialized!\r\n"
+message_got_packet:
+.asciz "Got packet!\r\n"
 message_halt:
 .asciz "Halting.\r\n"
