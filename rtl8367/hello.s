@@ -389,7 +389,7 @@ port_init1_loop:
 	acall port_init_eee
 	acall port_init_phyocp
 	inc R7
-	cjne R7, #6, port_init1_loop
+	cjne R7, #5, port_init1_loop
 	ret
 
 dump_reg:
