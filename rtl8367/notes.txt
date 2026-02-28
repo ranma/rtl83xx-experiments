@@ -1,0 +1,323 @@
+TL-SG105E reveng notes
+
+38400 baud
+
+default MAC in flash @0x1fc000 (MAC B0:A7:B9:E4:85:4B)
+
+GPIO6: System LED
+GPIO3: Reset button
+
+The system clock is based on timer 0, which is run in 16 bit counter mode. The timer/counter is driven by half the external crystal frequency. When the counter overflows an interrupt is called. This increases the system ticks. These ticks are now configured to run at 200 Hz, which is close to the slowest possible frequency for a 25MHz crystal
+Also fixed is the counting of seconds by the system which is now correctly based on SYS_TICK_HZ
+
+RTL8367B_REG_DW8051_RDY[4:7]: RTL8367B_DW8051_RATE
+0 => 200000000
+1 => 125000000
+2 => 100000000
+4 =>  62500000
+5 =>  20800000
+
+Yakigani:
+smi_setRegBit(0x1322, 4, 1);	// REG_CHIP_RESET.DW8051_RST = 1
+smi_setRegBit(0x130c, 5, 1);	// REG_MISCELLANEOUS_CONFIGURE0.DW8051_EN = 1
+smi_setRegBit(0x1336, 1, 1);	// REG_DW8051_RDY.ACS_IROM_ENABLE = 1
+smi_setRegBit(0x1322, 2, 0);	// REG_CHIP_RESET.CONFIG_RST = 0
+
+delay(100);
+
+for (i=0; i<sizeof(irom); i++) {
+if (i == 0x2000) {
+smi_setRegBit(0x1336, 2, 1);  // REG_DW8051_RDY.IROM_MSB
+SerialUSB.println("change page");
+}
+smi_write( ((i&0x1FFF) + 0xE000), irom[i]);
+}
+
+delay(100);
+
+smi_setRegBit(0x1336, 2, 0);	// REG_DW8051_RDY.IROM_MSB = 0
+smi_setRegBit(0x1336, 1, 0);	// REG_DW8051_RDY.ACS_IROM_ENABLE = 0
+smi_setRegBit(0x1322, 4, 0);	// REG_CHIP_RESET.DW8051_RST = 0
+
+ethernet RX/TX:
+
+CRXCP => CPU RX Current Packet
+1a04_NIC_RXRDR: 0 if no RX data pending (similar to 7874_RTL837X_REG_RX_AVAIL / RTL8373_NIC_RX_BUFF_DATA_ADDR)
+1a50_NIC_CRXCPR: CPU RX ring current pointer? (similar to 787c_RTL837X_REG_RX_RINGPTR / RTL8373_CPU_RX_CURR_PKT_ADDR)
+	(There should also be an euivalent to 7878_RTL8373_NIC_RX_CURR_PKT_ADDR, maybe NIC_RXMBTR)
+1a0c_NIC_RXCMDR: RX command (write 1 to finish RX) (similar to 784c_RTL837X_REG_RX_DONE / RTL8373_NIC_RXCMD_ADDR)
+
+1a52_NIC_CTXCPR: CPU TX ring current pointer? (similar to 7890_RTL8373_CPU_TX_CURR_PKT_ADDR)
+1a09_NIC_TXASRH: TX available space? (similar to 7880_RTL8373_NIC_TX_BUFF_AVAIL_ADDR?)
+1a0d_NIC_TXCMDR: TX command (write 1 to start TX) (similar to 7850_RTL8373_NIC_TXCMD_ADDR)
+
+
+	// Add TX-TAG
+	uip_buf[VLAN_TAG_SIZE] = tx_seq++;
+	uip_buf[VLAN_TAG_SIZE + 1] = 0x07;    // Enable all checksums
+	uip_buf[VLAN_TAG_SIZE + 2] = uip_buf[VLAN_TAG_SIZE + 3] = 0;
+	uip_buf[VLAN_TAG_SIZE + 4] = uip_len;
+	uip_buf[VLAN_TAG_SIZE + 5] = uip_len >> 8;
+	uip_buf[VLAN_TAG_SIZE + 6] = uip_buf[VLAN_TAG_SIZE + 7] = 0;
+
+// For RX data, a propriatary RTL FRAME is inserted. Instead of 0x0800 for IPv4,
+// the RTL_FRAME_TAG_ID is used as part of an 8-byte tag. When VLAN is activated,
+// the VLAN tag is inserted after the RTL tag
+// See here for the RTL tag: https://github.com/torvalds/linux/commit/1521d5adfc2b557e15f97283c8b7ad688c3ebc40
+#define RTL_TAG_SIZE		8
+#define VLAN_TAG_SIZE		4
+#define RTL_FRAME_TAG_ID	0x8899
+
+// For RX and TX, an 8 byte header describing the frame to be moved to the Asic
+// and received from the Asic is used
+#define RTL_FRAME_HEADER_SIZE	8
+
+// 8899 04 0000 20 0004
+struct rtl_tag {
+	uint16_t tag;
+	uint8_t version;
+	uint8_t reason;
+	uint16_t flags;
+	uint16_t pmask;  // A bit mask for a TX pkt, 4-bit port-number for RX
+};
+
+ * Handler for Realtek 8 byte switch tags
+ *
+ * Copyright (C) 2021 Alvin Šipraga <alsi@bang-olufsen.dk>
+ *
+ * NOTE: Currently only supports protocol "4" found in the RTL8365MB, hence
+ * named tag_rtl8_4.
+ *
+ * This tag has the following format:
+ *
+ *  0                                  7|8                                 15
+ *  |-----------------------------------+-----------------------------------|---
+ *  |                               (16-bit)                                | ^
+ *  |                       Realtek EtherType [0x8899]                      | |
+ *  |-----------------------------------+-----------------------------------| 8
+ *  |              (8-bit)              |              (8-bit)              |
+ *  |          Protocol [0x04]          |              REASON               | b
+ *  |-----------------------------------+-----------------------------------| y
+ *  |   (1)  | (1) | (2) |   (1)  | (3) | (1)  | (1) |    (1)    |   (5)    | t
+ *  | FID_EN |  X  | FID | PRI_EN | PRI | KEEP |  X  | LEARN_DIS |    X     | e
+ *  |-----------------------------------+-----------------------------------| s
+ *  |   (1)  |                       (15-bit)                               | |
+ *  |  ALLOW |                        TX/RX                                 | v
+ *  |-----------------------------------+-----------------------------------|---
+ *
+ * With the following field descriptions:
+ *
+ *    field      | description
+ *   ------------+-------------
+ *    Realtek    | 0x8899: indicates that this is a proprietary Realtek tag;
+ *     EtherType |         note that Realtek uses the same EtherType for
+ *               |         other incompatible tag formats (e.g. tag_rtl4_a.c)
+ *    Protocol   | 0x04: indicates that this tag conforms to this format
+ *    X          | reserved
+ *   ------------+-------------
+ *    REASON     | reason for forwarding packet to CPU
+ *               | 0: packet was forwarded or flooded to CPU
+ *               | 80: packet was trapped to CPU
+ *    FID_EN     | 1: packet has an FID
+ *               | 0: no FID
+ *    FID        | FID of packet (if FID_EN=1)
+ *    PRI_EN     | 1: force priority of packet
+ *               | 0: don't force priority
+ *    PRI        | priority of packet (if PRI_EN=1)
+ *    KEEP       | preserve packet VLAN tag format
+ *    LEARN_DIS  | don't learn the source MAC address of the packet
+ *    ALLOW      | 1: treat TX/RX field as an allowance port mask, meaning the
+ *               |    packet may only be forwarded to ports specified in the
+ *               |    mask
+ *               | 0: no allowance port mask, TX/RX field is the forwarding
+ *               |    port mask
+ *    TX/RX      | TX (switch->CPU): port number the packet was received on
+ *               | RX (CPU->switch): forwarding port mask (if ALLOW=0)
+ *               |                   allowance port mask (if ALLOW=1)
+ *
+ * The tag can be positioned before Ethertype, using tag "rtl8_4":
+ *
+ *  +--------+--------+------------+------+-----
+ *  | MAC DA | MAC SA | 8 byte tag | Type | ...
+ *  +--------+--------+------------+------+-----
+ *
+ * The tag can also appear between the end of the payload and before the CRC,
+ * using tag "rtl8_4t":
+ *
+ * +--------+--------+------+-----+---------+------------+-----+
+ * | MAC DA | MAC SA | TYPE | ... | payload | 8-byte tag | CRC |
+ * +--------+--------+------+-----+---------+------------+-----+
+ *
+ * The added bytes after the payload will break most checksums, either in
+ * software or hardware. To avoid this issue, if the checksum is still pending,
+ * this tagger checksums the packet in software before adding the tag.
+
+ * Handler for Realtek 4 byte DSA switch tags
+ * Currently only supports protocol "A" found in RTL8366RB
+ * Copyright (c) 2020 Linus Walleij <linus.walleij@linaro.org>
+ *
+ * This "proprietary tag" header looks like so:
+ *
+ * -------------------------------------------------
+ * | MAC DA | MAC SA | 0x8899 | 2 bytes tag | Type |
+ * -------------------------------------------------
+ *
+ * The 2 bytes tag form a 16 bit big endian word. The exact
+ * meaning has been guessed from packet dumps from ingress
+ * frames.
+#define RTL4_A_HDR_LEN		4
+#define RTL4_A_PROTOCOL_SHIFT	12
+/*
+ * 0x1 = Realtek Remote Control protocol (RRCP)
+ * 0x2/0x3 seems to be used for loopback testing
+ * 0x9 = RTL8306 DSA protocol
+ * 0xa = RTL8366RB DSA protocol
+ */
+#define RTL4_A_PROTOCOL_RTL8366RB	0xa
+	out = (RTL4_A_PROTOCOL_RTL8366RB << RTL4_A_PROTOCOL_SHIFT);
+	/* The lower bits indicate the port number */
+	out |= BIT(dp->index);
+
+RTL8367C_CPU_EN_OFFSET 0 (CPU tag function)
+1: enabled, 0: disabled
+RTL8367C_CPU_INSERTMODE_OFFSET 1
+0: insert to all packets; 1: insert to trapped packets; 2: don't insert
+RTL8367C_CPU_TRAP_PORT_OFFSET 3 -> port & 7
+RTL8367C_CPU_TAG_POSITION_OFFSET 6
+1: After entire packet(before CRC field), 0: After MAC_SA (Default)
+RTL8367C_CPU_TAG_RXBYTECOUNT_OFFSET 7 (min RX length)
+1: 64bytes, 0: 72bytes
+RTL8367C_IOL_16DROP_OFFSET 8  ????
+RTL8367C_CPU_TAG_FORMAT_OFFSET 9
+1: 4bytes mode, 0: 8bytes mode
+RTL8367C_CPU_TRAP_PORT_EXT_OFFSET 10 -> (port>>3) & 1
+
+RTL8367C_REG_CPU_CTRL: Default 0x82 10000010 (RXBYTECOUNT 64bytes, INSERTMODE 1)
+Mfg fw: 0xb9 10111001 (RXBYTECOUNT 64bytes, INSERTMODE 0, CPU_EN, TRAP_PORT 7)
+
+
+000a 0000 Got packet!
+0000: 00 00 10 80 00 00 00 44 ff ff ff ff ff ff c8 2b
+                                                ^^^^^MAC SA
+                              ^^^^^^^^^^^^^^^^^ MAC DA
+                        ^^^^^len?
+               ^^rx_port(0)
+            ^^flags?
+         ^^unused?
+      ^^rx_seq
+0010: 96 06 59 a7 88 99 04 00 01 00 00 00 08 06 00 01
+                                          ^^^^^ARP tag
+                                    ^^^^^RTL pmask
+                               ^RTL priority 1
+                              ^^^^^RTL flags
+                           ^^RTL reason
+                        ^^RTL tag version
+                  ^^^^^RTL tag
+      ^^^^^^^^^^^ MAC SA
+
+000a 0000 Got packet!
+0000: 00 00 10 81 00 00 00 44 ff ff ff ff ff ff c8 2b
+0010: 96 06 59 a7 88 99 04 00 01 00 00 01 08 06 00 01
+000a 000a Got packet!
+0000: 01 00 10 81 00 00 00 44 ff ff ff ff ff ff 36 ba
+0010: 36 aa 45 88 88 99 04 00 01 00 00 01 08 06 00 01
+000a 0014 Got packet!
+0000: 02 00 10 81 00 00 00 44 ff ff ff ff ff ff 36 ba
+0010: 36 aa 45 88 88 99 04 00 01 00 00 01 08 06 00 01
+000a 001e Got packet!
+0000: 03 00 10 81 00 00 00 44 ff ff ff ff ff ff 36 ba
+0010: 36 aa 45 88 88 99 04 00 01 00 00 01 08 06 00 01
+000a 0028 Got packet!
+0000: 04 00 10 80 00 00 00 44 ff ff ff ff ff ff c8 2b
+0010: 96 06 59 a7 88 99 04 00 01 00 00 00 08 06 00 01
+[...just before rxring rollover...]
+0009 02f8 Got packet!
+0000: 4c 00 10 84 00 00 00 44 ff ff ff ff ff ff 36 ba
+0010: 36 aa 45 88 88 99 04 00 01 00 00 04 08 06 00 01
+[...rxring rolled over...]
+000a 0002 Got packet!
+0000: 4d 00 10 84 00 00 00 44 ff ff ff ff ff ff c8 2b
+0010: 96 06 59 a7 88 99 04 00 01 00 00 04 08 06 00 01
+000a 000c Got packet!
+0000: 4e 00 10 84 00 00 00 44 ff ff ff ff ff ff 36 ba
+0010: 36 aa 45 88 88 99 04 00 01 00 00 04 08 06 00 01
+
+SPI power-on default:
+  SPI: 00 00 03 00 01 03 00 05
+  IO_CONF:   00
+  RI_CONF:   00
+  RI_CMD     03
+  S_CONF     00
+  S_ACCESS   01
+  S_RCMD     03
+  S_WCMD     00
+  DSEL_CYCLE 05
+
+SPI mfg fw default:
+  SPI: 18 04 bb 04 19 bb 01 09
+  IO_CONF:   18
+  RI_CONF:   04
+  RI_CMD     bb
+  S_CONF     04
+  S_ACCESS   19
+  S_RCMD     bb
+  S_WCMD     01
+  DSEL_CYCLE 09
+
+
+SPI:
+- pre-setup for each cmd
+  SPI_S_CONF = 0
+  SPI_IO_CONF = 0
+  - set dio mode
+    SPI_IO_CONF = 0x18
+    SPI_S_RCMD = 0xbb
+    SPI_S_CONF = 4
+  - read status (1 byte)
+    SPI_S_ACCESS = 0x11
+    SPI_S_RCMD = 5
+  - write enable
+    SPI_S_ACCESS = 0x18
+    SPI_S_WCMD = 6
+  - flash program
+    SPI_S_ACCESS = 0x0c
+    SPI_S_WCMD = 2
+  - read (dio mode)
+    SPI_S_ACCESS = 0x04
+  - read jedec id (3 byte)
+    SPI_S_CONF = 0
+    SPI_IO_CONF = 0
+    SPI_S_ACCESS = 0x13
+    SPI_S_RCMD = 0x9f
+  - read unique id (8 byte, prefixed with 4 dummy bytes)
+    SPI_S_CONF = 8
+    SPI_S_ACCESS = 4
+    SPI_S_RCMD = 0x4b
+    first 4 bytes
+    SPI_S_CONF = 0x0e
+    SPI_S_ACCESS = 4
+    SPI_S_RCMD = 0x4b
+    second 4 bytes
+  - read sfdp
+    SPI_S_CONF = 8
+    SPI_S_ACCESS = 4
+    SPI_S_RCMD = 0x5a
+  - sector erase
+    SPI_S_ACCESS = 8
+    SPI_S_WCMD = 0x20
+
+CMD                 DIR ADR? SACCESS       SCNF  IOCNF
+0x02 page program   w   3    00001100/0x0c 0     0
+0x05 read status    r   n    00010001/0x11 0     0
+0x06 write enable   w   n    00011000/0x18 0     0
+0x20 sector erase   w   3    00001000/0x08 0     0
+0x4b read uniqueid  r   4d   00000100/0x04 8/0xe 0
+0x5a read sfdp reg  r   3+1d 00000100/0x04 8     0
+0x9f read jedecid   r   n    00010011/0x13 0     0
+0xbb fread dio      r   3+1d 00000100/0x04 4     0x18
+
+SPI_S_ACCESS: 000adsss
+                   ^^^byte size for reads
+                  ^1 if write, 0 if read
+                 ^1 if no address bytes
+              ^^^maybe unused
