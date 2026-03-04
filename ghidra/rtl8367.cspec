@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<compiler_spec>
+  <global>
+    <range space="CODE"/>
+    <range space="INTMEM"/>
+    <range space="SFR"/>
+    <range space="EXTMEM"/>
+    <range space="BITS"/>
+    <range space="ASICREG"/>
+  </global>
+  <readonly>
+    <range space="CODE"/>
+  </readonly>
+  <stackpointer register="SP" space="INTMEM" growth="positive"/>
+  <default_proto>
+    <!-- Removed push / pop around calls to clear up decompilation -->
+    <prototype name="__keilmxs3" extrapop="0" stackshift="0" strategy="register">
+      <input>
+        <pentry minsize="1" maxsize="2">
+          <register name="R6R7"/>
+        </pentry>
+        <pentry minsize="1" maxsize="2">
+          <register name="R4R5"/>
+        </pentry>
+        <pentry minsize="1" maxsize="2">
+	  <!-- Expect to see R3R2R1 as an endian swapped pointer a lot -->
+          <register name="R2R3"/>
+        </pentry>
+      </input>
+      <output>
+        <pentry minsize="1" maxsize="2">
+          <register name="R6R7"/>
+        </pentry>
+      </output>
+      <unaffected>
+        <register name="SP"/>
+        <register name="SSP"/>
+      </unaffected>
+      <localrange>
+        <range space="stack" first="0x1" last="0x07c"/>
+      </localrange>
+      <!-- <localrange> -->
+      <!--   <range space="stack" first="0x0" last="0xf"/> -->
+      <!-- </localrange> -->
+    </prototype>
+  </default_proto>
+
+  <!-- Add in additional Keil prototypes -->
+  <prototype name="__keilmxs2p1" extrapop="0" stackshift="0" strategy="register">
+    <input>
+      <pentry minsize="1" maxsize="2">
+        <register name="R6R7"/>
+      </pentry>
+      <pentry minsize="1" maxsize="2">
+        <register name="R4R5"/>
+      </pentry>
+      <pentry minsize="3" maxsize="3">
+	<!-- Technically will be endian swapped -->
+        <register name="R1R2R3"/>
+      </pentry>
+    </input>
+    <output>
+      <pentry minsize="1" maxsize="2">
+        <register name="R6R7"/>
+      </pentry>
+    </output>
+    <unaffected>
+      <register name="SP"/>
+      <register name="SSP"/>
+    </unaffected>
+      <localrange>
+        <range space="stack" first="0x1" last="0x07c"/>
+      </localrange>
+    <!-- <localrange> -->
+    <!--   <range space="stack" first="0x0" last="0xf"/> -->
+    <!-- </localrange> -->
+  </prototype>
+
+  <callfixup name="switch_override_ACC">
+    <pcode>
+      <body><![CDATA[
+			PC = inst_next + zext(ACC) * 3;
+            goto [PC];
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="switch_keil_ccase">
+    <pcode>
+      <body><![CDATA[
+val:1 = ACC;
+tmp_ptr:3 = inst_next;
+
+<check_case>
+addr:2 = *[CODE]:2 tmp_ptr;
+tmp_ptr = tmp_ptr + 2;
+if (addr == 0) goto <default_case>;
+
+candidate = *[CODE]:1 tmp_ptr;
+tmp_ptr = tmp_ptr + 1;
+if (val != candidate) goto <check_case>;
+goto <go>;
+
+<default_case>
+addr = *[CODE]:2 tmp_ptr;
+goto <go>;
+
+<go>
+PC = (inst_next & 0xff0000) + zext(addr);
+goto [PC];
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="call_DPTR_bank1">
+    <pcode>
+      <body><![CDATA[
+            CODE_BANK = 1;
+            ret:2 = inst_next;
+            SP = SP + 1;
+            *[INTMEM]:1 SP = ret:1;
+            SP = SP + 1;
+            *[INTMEM]:1 SP = ret(1);
+            PC = 0x010000 + zext(DPTR);
+            call [PC];
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="call_DPTR_bank2">
+    <pcode>
+      <body><![CDATA[
+            CODE_BANK = 2;
+            ret:2 = inst_next;
+            SP = SP + 1;
+            *[INTMEM]:1 SP = ret:1;
+            SP = SP + 1;
+            *[INTMEM]:1 SP = ret(1);
+            PC = 0x020000 + zext(DPTR);
+            call [PC];
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="call_DPTR_bank3">
+    <pcode>
+      <body><![CDATA[
+            CODE_BANK = 3;
+            ret:2 = inst_next;
+            SP = SP + 1;
+            *[INTMEM]:1 SP = ret:1;
+            SP = SP + 1;
+            *[INTMEM]:1 SP = ret(1);
+            PC = 0x030000 + zext(DPTR);
+            call [PC];
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="call_DPTR_bank10">
+    <pcode>
+      <body><![CDATA[
+            CODE_BANK = 10;
+            ret:2 = inst_next;
+            SP = SP + 1;
+            *[INTMEM]:1 SP = ret:1;
+            SP = SP + 1;
+            *[INTMEM]:1 SP = ret(1);
+            PC = 0x0a0000 + zext(DPTR);
+            call [PC];
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="asic_read">
+    <pcode>
+      <body><![CDATA[
+            tmp:3 = zext(R6R7);
+            R6R7 = *[ASICREG]:2 tmp;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="asic_write">
+    <pcode>
+      <body><![CDATA[
+            tmp:3 = zext(R6R7);
+            *[ASICREG]:2 tmp = R4R5;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="write8_keilptr">
+    <!-- code at 0x4aa -->
+    <pcode>
+      <body><![CDATA[
+ptr:3 = zext(R3) * 0x10000 + zext(R2) * 0x100 + zext(R1);
+*[KEILMEM] ptr = ACC;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="load8_keilptr">
+    <!-- code at 0x4aa -->
+    <pcode>
+      <body><![CDATA[
+ptr:3 = zext(R3) * 0x10000 + zext(R2) * 0x100 + zext(R1);
+ACC = *[KEILMEM] ptr;
+      ]]></body>
+<!-- 
+      <body><![CDATA[
+if (R3 == 1) goto <r3_is_1>;
+if (R3 == 0) goto <r3_is_0>;
+if (R3 == 0xfe) goto <r3_is_fe>;
+if (R3 == 0xff) goto <r3_is_ff>;
+
+cptr1:3 = zext(R3 - 1) * 0x010000 + zext(R1) + 256 * zext(R2);
+ACC = *[CODE] cptr1;
+goto <ret>;
+
+<r3_is_1>
+xptr1:2 = zext(R1) + 256 * zext(R2);
+ACC = *[EXTMEM] xptr1;
+goto <ret>;
+
+<r3_is_0>
+ACC = *[INTMEM] R1;
+goto <ret>;
+
+<r3_is_fe>
+xptr2:2 = zext(R1) + 256 * zext(MPAGE);
+ACC = *[EXTMEM] xptr2;
+goto <ret>;
+
+<r3_is_ff>
+cptr2:3 = (inst_next & 0xff0000) + zext(R1) + 256 * zext(R2);
+ACC = *[CODE] cptr2;
+
+<ret>
+      ]]></body>
+-->
+    </pcode>
+  </callfixup>
+  <callfixup name="load32_dptr_r0r1r2r3">
+    <pcode>
+      <body><![CDATA[
+            R0R1R2R3 = *[EXTMEM]:2 DPTR;
+            DPTR = DPTR + 3;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="load32_dptr_r4r5r6r7">
+    <pcode>
+      <body><![CDATA[
+            R4R5R6R7 = *[EXTMEM]:2 DPTR;
+            DPTR = DPTR + 3;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="store32_dptr_r0r1r2r3">
+    <pcode>
+      <body><![CDATA[
+            *[EXTMEM]:2 DPTR = R0R1R2R3;
+            DPTR = DPTR + 3;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="store32_dptr_r4r5r6r7">
+    <pcode>
+      <body><![CDATA[
+            *[EXTMEM]:2 DPTR = R4R5R6R7;
+            DPTR = DPTR + 3;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="and32_r4r5r6r7_r0r1r2r3">
+    <pcode>
+      <body><![CDATA[
+            R4R5R6R7 = R0R1R2R3 & R4R5R6R7;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="or32_r4r5r6r7_r0r1r2r3">
+    <pcode>
+      <body><![CDATA[
+            R4R5R6R7 = R0R1R2R3 | R4R5R6R7;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="udiv32_r4r5r6r7_r0r1r2r3">
+    <pcode>
+      <body><![CDATA[
+            tmp:4 = R4R5R6R7 % R0R1R2R3;
+            R4R5R6R7 = R4R5R6R7 / R0R1R2R3;
+            R0R1R2R3 = tmp;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  <callfixup name="cmp32_r4r5r6r7_r0r1r2r3">
+    <pcode>
+      <body><![CDATA[
+            local tmp = PSW[7,1];
+            local ret = R0R1R2R3 + tmp < R4R5R6R7;
+            PSW[7,1] = ret;
+            ACC = ret;
+      ]]></body>
+    </pcode>
+  </callfixup>
+  
+  
+</compiler_spec>
