@@ -1,0 +1,498 @@
+nop,0,1
+
+undef,165,1
+	opcode_a5();
+
+ljmp,2
+	pc = fetch(2) | (fetch(1) << 8);
+
+inc_a,4,1
+INC A
+	ACC++;
+
+dec_a,20,1
+DEC A
+	ACC--;
+
+sjmp,128
+	pc += 2 + (int8_t)fetch(1);
+
+lcall,18
+	reladdr = fetch(2) | (fetch(1) << 8);
+	pc += 3;
+	PUSH(pc & 0xff);
+	PUSH(pc >> 8);
+	pc = reladdr;
+
+acall,17:49:81:113:145:177:209:241
+	reladdr = fetch(1) | ((fetch(0) << 3) & 0x700);
+	pc += 2;
+	PUSH(pc & 0xff);
+	PUSH(pc >> 8);
+	pc = (reladdr & 0x7ff) | (pc & ~0x7ff);
+
+jbc,16
+	tmp1 = fetch(1);
+	reladdr = fetch(2);
+	tmp2 = 1 << (tmp1 & 7);
+	tmp1 = bitaddr[tmp1 >> 3];
+	pc += 3;
+	if (readd(tmp1) & tmp2) {
+		writed(tmp1, readd(tmp1) & ~tmp2);
+		pc += (int8_t)reladdr;
+	}
+
+jb,32
+	tmp1 = fetch(1);
+	reladdr = fetch(2);
+	tmp2 = 1 << (tmp1 & 7);
+	tmp1 = bitaddr[tmp1 >> 3];
+	pc += 3;
+	if (readd(tmp1) & tmp2) {
+		pc += (int8_t)reladdr;
+	}
+
+jnb,48
+	tmp1 = fetch(1);
+	reladdr = fetch(2);
+	tmp2 = 1 << (tmp1 & 7);
+	tmp1 = bitaddr[tmp1 >> 3];
+	pc += 3;
+	if ((readd(tmp1) & tmp2) == 0) {
+		pc += (int8_t)reladdr;
+	}
+
+jc,64
+	reladdr = fetch(1);
+	pc += 2;
+	if (PSW & PSW_C) {
+		pc += (int8_t)reladdr;
+	}
+
+jnc,80
+	reladdr = fetch(1);
+	pc += 2;
+	if ((PSW & PSW_C) == 0) {
+		pc += (int8_t)reladdr;
+	}
+
+jz,96
+	reladdr = fetch(1);
+	pc += 2;
+	if (ACC == 0) {
+		pc += (int8_t)reladdr;
+	}
+
+jnz,112
+	reladdr = fetch(1);
+	pc += 2;
+	if (ACC != 0) {
+		pc += (int8_t)reladdr;
+	}
+
+ret,34
+	reladdr = POP() << 8;
+	reladdr |= POP();
+	pc = reladdr;
+
+reti,50
+	irqlevel_reti();
+	reladdr = POP() << 8;
+	reladdr |= POP();
+	pc = reladdr;
+
+ajmp,1:33:65:97:129:161:193:225
+	reladdr = fetch(1) | ((op & 0xe0) << 3);
+	pc = pc & ~0x7ff | reladdr;
+
+inc_iram,5,2
+INC iram
+	writed(fetch(1), readd(fetch(1)) + 1);
+
+inc_r,8:9:10:11:12:13:14:15,1
+	RX++;
+
+inc_atr0,6,1
+	writed(R0, readd(R0) + 1);
+
+inc_atr1,7,1
+	writed(R1, readd(R1) + 1);
+
+dec_atr0,22,1
+	writed(R0, readd(R0) + 1);
+
+dec_atr1,23,1
+	writed(R1, readd(R1) + 1);
+
+dec_iram,21,2
+DEC iram
+	writed(fetch(1), readd(fetch(1)) - 1);
+
+dec_r,24:25:26:27:28:29:30:31,1
+DEC Rx
+	RX--;
+
+rr_a,3,1
+RR A
+	ACC = (ACC >> 1) | (ACC << 7);
+
+rrc_a,19,1
+RRC A
+	/* Carry is bit 7 / msb in PSW */
+	tmp1 = ACC;
+	ACC = (ACC >> 1) | (PSW & PSW_C);
+	PSW = (PSW & ~PSW_C) | (tmp1 << 7);
+
+rl_a,35,1
+RL A
+	ACC = (ACC << 1) | (ACC >> 7);
+
+rlc_a,51,1
+RLC A
+	/* Carry is bit 7 / msb in PSW */
+	tmp1 = ACC;
+	ACC = (ACC << 1) | (PSW >> 7);
+	PSW = (PSW & ~PSW_C) | tmp1 & PSW_C;
+
+jmp_ad,115
+JMP @A+DTR
+	pc = DPTR + ACC;
+
+mov_74,116,2
+MOV A, #data
+	ACC = fetch(1);
+
+mov_75,117,3
+MOV iram, #data
+	writed(fetch(1), fetch(2));
+
+mov_76,118,2
+MOV @R0, #data
+	writei(R0, fetch(1));
+
+mov_77,119,2
+MOV @R1, #data
+	writei(R1, fetch(1));
+
+mov_ri,120:121:122:123:124:125:126:127,2
+MOV Rx, #data
+	RX = fetch(1);
+
+movc_83,131,1
+MOVC A, @A+PC
+	printf("pc=%04x acc=%02x ptr=%04x\n", pc, ACC, pc+ACC+1);
+	ACC = readc(pc + ACC + 1);
+
+mov_85,133,3
+MOV addr, addr
+	writed(fetch(2), readd(fetch(1)));
+
+mov_86,134,2
+MOV iram, @R0
+	writed(fetch(1), readi(R0));
+
+mov_87,135,2
+MOV iram, @R1
+	writed(fetch(1), readi(R1));
+
+mov_dr,136:137:138:139:140:141:142:143,2
+MOV addr, Rx
+	writed(fetch(1), RX);
+
+mov_90,144,3
+MOV DPTR, #data16
+	DPH = fetch(1);
+	DPL = fetch(2);
+
+mov_bit_c,146,2
+MOV bit, C
+	writeb(fetch(1), !!(PSW & PSW_C));
+
+mov_c_bit,162,2
+MOV C, bit
+	PSW &= ~PSW_C;
+	if (readb(fetch(1))) {
+		PSW |= PSW_C;
+	}
+
+mov_a6,166,2
+MOV @R0, @data
+	writei(R0, readd(fetch(1)));
+
+mov_a7,167,2
+MOV @R1, @data
+	writei(R1, readd(fetch(1)));
+
+
+movc_ad,147,1
+MOVC A, @A+DPTR
+	ACC = readc(DPTR + ACC);
+
+subb_94,148,2
+SUBB A, #data
+	ACC = alu_subb(ACC, fetch(1));
+
+subb_95,149,2
+SUBB A, iram
+	ACC = alu_subb(ACC, readd(fetch(1)));
+
+inc_d,163,1
+INC DPTR
+	tmp16 = DPTR + 1;
+	DPH = tmp16 >> 8;
+	DPL = tmp16 & 0xff;
+
+mov_rd,168:169:170:171:172:173:174:175,2
+MOV Rx, addr
+	RX = readd(fetch(1));
+
+cpl_bit,178,2
+CPL bit
+	writeb(fetch(1), !readb(fetch(1)));
+
+cpl_c,179,1
+CPL C
+	PSW ^= PSW_C;
+
+cjne_a,180,3
+CJNE A, #data, addr
+	if (alu_cmp(ACC, fetch(1)) != 0) {
+		pc += (int8_t)fetch(2);
+	}
+
+cjne_b5,181,3
+CJNE A, iram, addr
+	if (alu_cmp(ACC, readd(fetch(1))) != 0) {
+		pc += (int8_t)fetch(2);
+	}
+
+cjne_b6,182,3
+CJNE @R0, #data, addr
+	if (alu_cmp(readi(R0), fetch(1)) != 0) {
+		pc += (int8_t)fetch(2);
+	}
+
+cjne_b7,183,3
+CJNE @R1, #data, addr
+	if (alu_cmp(readi(R1), fetch(1)) != 0) {
+		pc += (int8_t)fetch(2);
+	}
+
+cjne_r,184:185:186:187:188:189:190:191,3
+CJNE Rx, #data, addr
+	if (alu_cmp(RX, fetch(1)) != 0) {
+		pc += (int8_t)fetch(2);
+	}
+
+push_d,192,2
+PUSH addr
+	PUSH(readd(fetch(1)));
+
+clr_b,194,2
+CLR bit
+	writeb(fetch(1), 0);
+
+clr_c,195,1
+CLR C
+	PSW &= ~PSW_C;
+
+swap_a,196,1
+SWAP A
+	tmp1 = ACC >> 4;
+	tmp2 = ACC << 4;
+	ACC = tmp1 | tmp2;
+
+xch_ad,197,2
+XCH A, addr
+	tmp1 = ACC;
+	tmp2 = fetch(1);
+	ACC = readd(tmp2);
+	writed(tmp2, tmp1);
+
+xch_c6,198,1
+XCH A, @R0
+	tmp1 = readi(R0);
+	writei(R0, ACC);
+	ACC = tmp1;
+
+xch_c7,199,1
+XCH A, @R1
+	tmp1 = readi(R1);
+	writei(R1, ACC);
+	ACC = tmp1;
+
+xch_ar,200:201:202:203:204:205:206:207,1
+XCH A, Rx
+	tmp1 = ACC;
+	ACC = RX;
+	RX = tmp1;
+
+pop_d,208,2
+POP addr
+	writed(fetch(1), POP());
+
+set_b,210,2
+SET bit
+	tmp1 = fetch(1);
+	tmp2 = 1 << (tmp1 & 7);
+	tmp1 = bitaddr[tmp1 >> 3];
+	writed(tmp1, readd(tmp1) | tmp2);
+
+setb_c,211,1
+SETB C
+	PSW |= PSW_C;
+
+da_a,212,1
+DA A
+	tmp16 = ACC;
+	if (((tmp16 & 0xf) > 9) || (PSW & PSW_AC)) {
+		tmp16 += 6;
+	}
+	if (((tmp16 >> 4) > 9) || (PSW & PSW_C)) {
+		tmp16 += 0x60;
+	}
+	ACC = tmp16;
+	if (tmp16 > 0x99) {
+		PSW |= PSW_C;
+	}
+
+djnz_i,213,3
+DJNZ iram, addr
+	tmp1 = fetch(1);
+	reladdr = (int8_t)fetch(2);
+	tmp2 = readd(tmp1);
+	if (--tmp2) {
+		pc += reladdr;
+	}
+	writed(tmp1, tmp2);
+
+xchd_atr0,214,1
+	tmp1 = ACC;
+	tmp2 = readd(R0);
+	writed(R0, (tmp1 & 0x0f) | (tmp2 & 0xf0));
+	ACC = (tmp1 & 0xf0) | (tmp2 & 0x0f);
+
+xchd_atr1,215,1
+	tmp1 = ACC;
+	tmp2 = readd(R1);
+	writed(R1, (tmp1 & 0x0f) | (tmp2 & 0xf0));
+	ACC = (tmp1 & 0xf0) | (tmp2 & 0x0f);
+
+djnz_r,216:217:218:219:220:221:222:223,2
+DJNZ Rx, addr
+	reladdr = (int8_t)fetch(1);
+	if (--(RX)) {
+		pc += reladdr;
+	}
+
+movx_e0,224,1
+MOVX A,@DPTR
+	ACC = readx(DPTR);
+
+movx_e2,226,1
+MOVX A, @R0
+	ACC = readx8(R0);
+
+movx_e3,227,1
+MOVX A, @R1
+	ACC = readx8(R1);
+
+clr_a,228,1
+CLR A
+	ACC = 0;
+
+mov_e5,229,2
+MOV A, iram
+	ACC = readd(fetch(1));
+
+mov_e6,230,1
+MOV A, @R0
+	ACC = readi(R0);
+
+mov_e7,231,1
+MOV A, @R1
+	ACC = readi(R1);
+
+mov_ar,232:233:234:235:236:237:238:239,1
+MOV A, Rx
+	ACC = RX;
+
+movx_f0,240,1
+MOVX @DPTR, A
+	writex(DPTR, ACC);
+
+movx_f2,242,1
+MOVX @R0, A
+	writex8(R0, ACC);
+
+movx_f3,243,1
+MOVX @R1, A
+	writex8(R1, ACC);
+
+cpl_a,244,1
+CPL A
+	ACC ^= 0xff;
+
+mov_f5,245,2
+MOV iram, A
+	writed(fetch(1), ACC);
+
+mov_f6,246,1
+MOV @R0, A
+	writei(R0, ACC);
+
+mov_f7,247,1
+MOV @R1, A
+	writei(R1, ACC);
+
+mov_ra,248:249:250:251:252:253:254:255,1
+MOV Rx, A
+	RX = ACC;
+
+mul,164,1
+	tmp16 = ACC * B;
+	ACC = tmp16 & 0xff;
+	B = tmp16 >> 8;
+	PSW = (PSW & ~(PSW_C | PSW_OV)) | B ? PSW_OV : 0;
+
+div,132,1
+	PSW &= ~(PSW_C | PSW_OV);
+	if (B == 0) {
+		PSW |= PSW_OV;
+	} else {
+		tmp1 = ACC % B;
+		ACC = ACC / B;
+		B = tmp1;
+	}
+
+anl_cbit,130,2
+ANL C, bit
+	if ((PSW & PSW_C) && readb(fetch(1))) {
+		PSW |= PSW_C;
+	} else {
+		PSW &= ~PSW_C;
+	}
+
+anl_cnbit,176,2
+ANL C, /bit
+	if ((PSW & PSW_C) && !readb(fetch(1))) {
+		PSW |= PSW_C;
+	} else {
+		PSW &= ~PSW_C;
+	}
+
+orl_cbit,114,2
+ORL C, bit
+	if ((PSW & PSW_C) || readb(fetch(1))) {
+		PSW |= PSW_C;
+	} else {
+		PSW &= ~PSW_C;
+	}
+
+orl_cnbit,160,2
+ORL C, /bit
+	if ((PSW & PSW_C) || !readb(fetch(1))) {
+		PSW |= PSW_C;
+	} else {
+		PSW &= ~PSW_C;
+	}
